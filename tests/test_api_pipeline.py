@@ -49,3 +49,18 @@ def test_api_endpoints(client):
     csv = client.get(f"/api/history/{hid}/export?format=csv")
     assert csv.status_code == 200 and "text/csv" in csv.headers["content-type"]
     client.delete(f"/api/history/{hid}")
+
+
+def test_export_all_reruns_search(client):
+    import io
+    from openpyxl import load_workbook
+    r = client.post("/api/search/letters", json={"query": "שלום", "unit": "words", "limit": 2}).json()
+    assert r["total"] > 2
+    full = client.post("/api/export", json={"format": "xlsx", "kind": "letters", "request": {"query": "שלום", "unit": "words"},
+                                            "result": r, "all": True})
+    assert full.status_code == 200 and "filename*=UTF-8''" in full.headers["content-disposition"]
+    wb = load_workbook(io.BytesIO(full.content))
+    assert wb["תוצאות"].max_row == r["total"] + 1  # header + every result
+    part = client.get(f"/api/history/{r['history_id']}/export?format=md")
+    assert part.status_code == 200 and "סוג החיפוש" in part.content.decode()
+    client.delete(f"/api/history/{r['history_id']}")

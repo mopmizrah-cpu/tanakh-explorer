@@ -166,6 +166,8 @@ pre.json { direction: ltr; text-align: left; font-size: 12px; max-height: 300px;
 .help-pop ul { margin: 6px 0 0; padding-inline-start: 18px; }
 .help-pop li { margin: 3px 0; }
 .perm-table td.l { cursor: pointer; }
+.export-box { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-inline-start: auto; }
+.export-box select { min-height: 28px; padding: 2px 6px; font-size: 13px; }
 
 @media (max-width: 860px) {
   .hi { width: 26px; height: 26px; font-size: 18px; }

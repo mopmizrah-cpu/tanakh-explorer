@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import csv
-import io
 import json
 import os
+import time
 from pathlib import Path
 
 from fastapi import Body, FastAPI, HTTPException
@@ -13,6 +12,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .. import __version__, config
+from .. import export as exporter
 from .. import gematria as G
 from .. import transformations as X
 from ..combined import pipeline
@@ -347,44 +347,55 @@ def history_delete(hid: int):
     return {"ok": True}
 
 
-def _rows_for_export(res: dict) -> list[dict]:
-    rows = []
-    if isinstance(res.get("results"), list):
-        for i, r in enumerate(res["results"], 1):
-            rows.append({
-                "#": i,
-                "from": (r.get("from") or {}).get("ref_he", ""), "to": (r.get("to") or {}).get("ref_he", ""),
-                "found": r.get("found", ""), "value": r.get("value", ""),
-                "words": " | ".join(" ".join(w["text"] for w in b.get("words", [])) for b in r.get("display", [])
-                                    if "words" in b),
-                "calculation": " ; ".join(r.get("steps", [])),
-            })
-    elif isinstance(res.get("rows"), list):
-        for r in res["rows"]:
-            rows.append({k: (json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v)
-                         for k, v in r.items() if k != "results"})
-    return rows
+RERUN = {
+    "letters": lambda c, r: S.search_by_mode(c, r, r.get("query", "")) if r.get("search_mode") else S.letter_search(c, r),
+    "anagram": S.anagram_search, "phrase": S.phrase_search, "niqqud": S.niqqud_search,
+    "niqqud_sum": S.niqqud_sum_search, "gematria": S.gematria_search, "transform": S.transform_search,
+}
+
+
+def _file_response(data: bytes, media: str, ext: str, kind: str, title: str | None):
+    from urllib.parse import quote
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    ascii_name = f"tanakh-{kind}-{stamp}.{ext}"
+    pretty = f"{title or exporter.KIND_HE.get(kind, kind)} {stamp}.{ext}".replace("/", "-").replace("\\", "-")
+    cd = f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(pretty)}"
+    return Response(data, media_type=media, headers={"Content-Disposition": cd})
+
+
+def _export(fmt: str, kind: str, request: dict, result: dict, all_results: bool, extra: dict):
+    if all_results and kind in RERUN:
+        full = dict(request, limit=S.EXPORT_LIMIT, offset=0, _export=True)
+        result = RERUN[kind](corpus(), full)
+    data, media, ext = exporter.export(fmt, kind, request, result, extra)
+    return _file_response(data, media, ext, kind, extra.get("title"))
+
+
+@app.get("/api/export/formats")
+def export_formats():
+    return [{"id": k, "name": v[0]} for k, v in exporter.FORMATS.items()]
+
+
+@app.post("/api/export")
+def export_result(req: dict = Body(...)):
+    """Export any result shown in the interface: {format, kind, request, result, title, all}."""
+    extra = {"title": req.get("title")}
+    if req.get("history_id"):
+        h = db.get_history(int(req["history_id"]))
+        if h:
+            extra["searched_at"] = h["ts"]
+            extra["title"] = extra["title"] or h["title"]
+    return _export(req.get("format", "csv"), req.get("kind", "letters"), req.get("request") or {},
+                   req.get("result") or {}, bool(req.get("all")), extra)
 
 
 @app.get("/api/history/{hid}/export")
-def history_export(hid: int, format: str = "csv"):
+def history_export(hid: int, format: str = "csv", all: bool = False):
     h = db.get_history(hid)
     if not h:
         raise HTTPException(404, "לא נמצא")
-    if format == "json":
-        data = json.dumps(h, ensure_ascii=False, indent=1).encode("utf-8")
-        return Response(data, media_type="application/json",
-                        headers={"Content-Disposition": f'attachment; filename="search-{hid}.json"'})
-    rows = _rows_for_export(h["result"])
-    buf = io.StringIO()
-    buf.write(f"# {h['title']} | {h['ts']} | settings: {json.dumps(h['request'], ensure_ascii=False)}\n")
-    if rows:
-        w = csv.DictWriter(buf, fieldnames=list(rows[0].keys()))
-        w.writeheader()
-        w.writerows(rows)
-    data = ("﻿" + buf.getvalue()).encode("utf-8")  # BOM so spreadsheet programs read Hebrew correctly
-    return Response(data, media_type="text/csv",
-                    headers={"Content-Disposition": f'attachment; filename="search-{hid}.csv"'})
+    return _export(format, h["kind"], h["request"], h["result"], all,
+                   {"title": h["title"], "searched_at": h["ts"]})
 
 
 # --- static frontend ------------------------------------------------------------------

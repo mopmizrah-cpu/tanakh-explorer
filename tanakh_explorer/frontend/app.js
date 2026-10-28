@@ -184,11 +184,47 @@ function settingsLine(s) {
   return h("div", { class: "hint" }, bits.filter(Boolean).join(" · "));
 }
 
-function exportLinks(res) {
-  if (!res.history_id) return null;
-  return h("span", { class: "row" },
-    h("a", { href: `/api/history/${res.history_id}/export?format=csv`, class: "btn small secondary" }, "ייצוא CSV"),
-    h("a", { href: `/api/history/${res.history_id}/export?format=json`, class: "btn small secondary" }, "ייצוא JSON"));
+const EXPORT_FORMATS = [["xlsx", "Excel"], ["csv", "CSV"], ["html", "HTML (להדפסה / PDF)"], ["json", "JSON"], ["md", "Markdown"], ["txt", "טקסט"]];
+const RERUNNABLE = new Set(["letters", "anagram", "phrase", "niqqud", "niqqud_sum", "gematria", "transform"]);
+const PATH_KIND = {
+  "/api/search/letters": "letters", "/api/search/mode": "letters", "/api/search/anagram": "anagram", "/api/search/phrase": "phrase",
+  "/api/search/niqqud": "niqqud", "/api/search/niqqud-sum": "niqqud_sum", "/api/search/gematria": "gematria", "/api/search/transform": "transform",
+};
+
+async function downloadResponse(r) {
+  if (!r.ok) {
+    let msg = `שגיאה ${r.status}`;
+    try { msg = (await r.json()).error || msg; } catch { /* not JSON */ }
+    throw new Error(msg);
+  }
+  const cd = r.headers.get("content-disposition") || "";
+  const m = cd.match(/filename\*=UTF-8''([^;]+)/) || cd.match(/filename="([^"]+)"/);
+  const name = m ? decodeURIComponent(m[1]) : "export";
+  const url = URL.createObjectURL(await r.blob());
+  const a = h("a", { href: url, download: name });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+// One export control: format, "all results" (when the search can be re-run in full) and a button.
+function exportControl({ kind, request, result, title }) {
+  const fmt = h("select", { class: "export-format", title: "פורמט הקובץ" }, ...EXPORT_FORMATS.map(([v, l]) => h("option", { value: v, selected: v === store.get("export-format", "xlsx") }, l)));
+  fmt.addEventListener("change", () => store.set("export-format", fmt.value));
+  const shown = Array.isArray(result.results) ? result.results.length : null;
+  const canAll = RERUNNABLE.has(kind) && shown !== null && (result.total || 0) > shown;
+  const all = h("input", { type: "checkbox", checked: canAll });
+  const status = h("span", { class: "hint" });
+  const btn = h("button", { class: "btn small", type: "button", onclick: async () => {
+    btn.disabled = true; status.textContent = "מכין קובץ…";
+    try {
+      const body = { format: fmt.value, kind, request, result, title, history_id: result.history_id, all: canAll && all.checked };
+      await downloadResponse(await fetch("/api/export", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }));
+      status.textContent = "";
+    } catch (e) { status.textContent = "שגיאה: " + e.message; }
+    btn.disabled = false;
+  } }, "ייצוא");
+  return h("span", { class: "export-box" }, fmt,
+    canAll ? h("label", { class: "check", title: "כשמסומן, החיפוש רץ מחדש כדי שהקובץ יכלול את כל התוצאות (עד 5,000), ולא רק את העמוד המוצג." }, all, `כל התוצאות (${Math.min(result.total, 5000).toLocaleString("he-IL")})`) : null, btn, status);
 }
 
 function renderResults(el, res, rerun, extraHead) {
@@ -199,7 +235,7 @@ function renderResults(el, res, rerun, extraHead) {
     h("span", { class: "total" }, `${(res.total ?? 0).toLocaleString("he-IL")} תוצאות`),
     res.elapsed_ms !== undefined ? h("span", { class: "hint" }, `${res.elapsed_ms} מ״ש`) : null,
     res.total_reverse ? h("span", { class: "badge" }, `קדימה ${res.total_forward} · הפוך ${res.total_reverse}`) : null,
-    exportLinks(res));
+    res._kind ? exportControl({ kind: res._kind, request: res._req || {}, result: res }) : null);
   const c = card(null, head, settingsLine(res.settings), extraHead || null);
   if (!shown) c.append(h("div", { class: "hint" }, res.total ? "אין תוצאות בעמוד זה." : "לא נמצאו התאמות בתחום שנבחר."));
   (res.results || []).forEach((r, i) => c.append(resultEl(r, (res._offset || 0) + i + 1)));
@@ -219,7 +255,7 @@ async function runSearch(el, path, buildReq, extraHead) {
     try {
       const req = { ...globals(), ...buildReq(), offset, limit: 50 };
       const res = await api(path, req);
-      res._offset = offset; res._limit = 50;
+      res._offset = offset; res._limit = 50; res._kind = PATH_KIND[path]; res._req = req;
       renderResults(el, res, go, typeof extraHead === "function" ? extraHead(res) : extraHead);
     } catch (e) { showError(el, e); }
   };
@@ -426,11 +462,13 @@ function renderJobResult(el, j) {
         h("td", {}, ex ? `${ex.from.ref_he} – ${ex.to.ref_he}` : "")));
     }
     el.append(h("div", { class: "summary" }, h("span", { class: "total" }, `${r.total ?? 0} התאמות`), complete,
+      exportControl({ kind: j.kind, request: j.request, result: r }),
       h("span", { class: "hint" }, `נבדקו ${r.skips_checked ?? "?"} מתוך ${r.skips_requested ?? "?"} ערכי דילוג`)), h("div", { class: "scroll" }, tbl));
     const all = rows.flatMap((x) => x.results || []).slice(0, 30);
     all.forEach((x, i) => el.append(resultEl(x, i + 1)));
   } else {
-    el.append(h("div", { class: "summary" }, h("span", { class: "total" }, `${r.total ?? r.total_so_far ?? 0} התאמות`), complete));
+    el.append(h("div", { class: "summary" }, h("span", { class: "total" }, `${r.total ?? r.total_so_far ?? 0} התאמות`), complete,
+      exportControl({ kind: j.kind, request: j.request, result: r })));
     (r.results || []).forEach((x, i) => el.append(resultEl(x, i + 1)));
   }
 }
@@ -595,7 +633,7 @@ page("gematria", "כל סוגי הגימטריה", "מחשבון מפורט לכ
           h("td", {}, h("button", { class: "btn small secondary", onclick: () => { msel.value = row.method; upd(); $("#g-target").value = ""; go(); } }, "הצג תוצאות"))));
       }
       out.append(card(null, h("div", { class: "summary" }, h("span", { class: "total" }, `${r.methods_checked} שיטות נבדקו`),
-        h("span", { class: "badge pass" }, "סריקה מלאה של השיטות שנבחרו"), exportLinks(r), h("span", { class: "hint" }, `${r.elapsed_ms} מ״ש`)),
+        h("span", { class: "badge pass" }, "סריקה מלאה של השיטות שנבחרו"), exportControl({ kind: "gematria_all", request: { query: q.value }, result: r }), h("span", { class: "hint" }, `${r.elapsed_ms} מ״ש`)),
       h("div", { class: "hint" }, `ספירת התאמות למילים בודדות${+$("#g-nmax").value > 1 ? " ולרצפים של עד " + $("#g-nmax").value + " מילים (בתוך פסוק)" : ""}.`), tbl));
     } catch (e) { showError(out, e); }
   }
@@ -661,7 +699,7 @@ page("transform", "חילופי אותיות", "א״ת ב״ש, אלב״ם, אכ�
       out.innerHTML = "";
       const tbl = h("table", { class: "grid" }, h("tr", {}, h("th", {}, "שיטה"), h("th", {}, "תוצאת החילוף"), h("th", {}, "התאמות (" + r.search_mode_he + ")")));
       r.rows.forEach((x) => tbl.append(h("tr", {}, h("td", {}, x.name_he), h("td", { class: "l" }, x.output), h("td", {}, x.count))));
-      out.append(card(null, h("div", { class: "summary" }, h("span", { class: "total" }, `${r.variants_checked} חילופים נבדקו`), h("span", { class: "badge pass" }, "סריקה מלאה"), exportLinks(r)), tbl));
+      out.append(card(null, h("div", { class: "summary" }, h("span", { class: "total" }, `${r.variants_checked} חילופים נבדקו`), h("span", { class: "badge pass" }, "סריקה מלאה"), exportControl({ kind: "transform_all", request: { query: q.value, search_mode: $("#t-mode").value }, result: r })), tbl));
     } catch (e) { showError(out, e); }
   }
   async function allCombined() {
@@ -671,7 +709,7 @@ page("transform", "חילופי אותיות", "א״ת ב״ש, אלב״ם, אכ�
       out.innerHTML = "";
       const tbl = h("table", { class: "grid" }, h("tr", {}, h("th", {}, "חילוף"), h("th", {}, "טקסט"), h("th", {}, "שיטת גימטריה"), h("th", {}, "ערך"), h("th", {}, "מילים בעלות ערך זה")));
       r.rows.forEach((x) => tbl.append(h("tr", {}, h("td", {}, x.transformation_he), h("td", { class: "l" }, x.text), h("td", {}, x.method_he), h("td", {}, x.value), h("td", {}, x.count))));
-      out.append(card(null, h("div", { class: "summary" }, h("span", { class: "total" }, r.scope_note), h("span", { class: "badge pass" }, "כל הצירופים נבדקו"), exportLinks(r)), h("div", { class: "scroll" }, tbl)));
+      out.append(card(null, h("div", { class: "summary" }, h("span", { class: "total" }, r.scope_note), h("span", { class: "badge pass" }, "כל הצירופים נבדקו"), exportControl({ kind: "all_combined", request: { query: q.value }, result: r })), h("div", { class: "scroll" }, tbl)));
     } catch (e) { showError(out, e); }
   }
 });
@@ -760,7 +798,7 @@ page("builder", "בניית חיפוש משולב", "הרכבת חיפוש מכ�
       const res = await api("/api/search/pipeline", { ...globals(), query: q.value, steps, scope: scope.value(), limit: 50 });
       out.innerHTML = "";
       if (!res.ok) { out.append(card(null, ...res.errors.map((e) => h("div", { class: "err" }, e)))); return; }
-      const trace = card("מעקב השלבים (ניתן לשחזור)", h("ol", { class: "steps" }, ...res.trace.map((t) =>
+      const trace = card("מעקב השלבים (ניתן לשחזור)", exportControl({ kind: "pipeline", request: { query: q.value, steps }, result: res }), h("ol", { class: "steps" }, ...res.trace.map((t) =>
         h("li", {}, `${t.op_he}${t.detail ? " (" + t.detail + ")" : ""}: ${t.output}` + (t.calc ? " — " + t.calc.join(" · ") : "")))));
       out.append(trace);
       if (res.result) { const r = h("div"); out.append(r); res.result.history_id = res.history_id; renderResults(r, res.result); }
@@ -803,7 +841,8 @@ page("stats", "ניתוח אותיות וניקוד", "סיכום הניקוד �
         tbl.append(tr);
       }
       const freq = cols.map((c) => `${c.name_he}: ${(r.frequency[c.id] * 100).toFixed(2)}%`).join(" · ");
-      out.append(card(`${r.settings.scope_he} · ${r.settings.position_he}`, h("div", { class: "summary" },
+      r.total = r.total_letters;
+      out.append(card(`${r.settings.scope_he} · ${r.settings.position_he}`, h("div", { class: "summary" }, exportControl({ kind: "stats_table", request: base(), result: r }),
         h("span", { class: "total" }, `${r.total_letters.toLocaleString("he-IL")} אותיות`), h("span", { class: "badge" }, "סכום ניקוד " + r.niqqud_sum.toLocaleString("he-IL")),
         h("span", { class: "badge" }, "סכום גימטריה " + r.gematria_sum.toLocaleString("he-IL")), h("span", { class: "badge" }, "משולב " + r.combined_sum.toLocaleString("he-IL"))),
       h("div", { class: "hint" }, "שכיחות: " + freq), h("div", { class: "scroll" }, tbl)));
@@ -835,7 +874,8 @@ page("stats", "ניתוח אותיות וניקוד", "סיכום הניקוד �
       out.append(card(`הניקוד על האות ${r.letter} · ${r.settings.scope_he} · ${r.settings.position_he} · ${r.settings.layer_he}`,
         h("div", { class: "summary" }, h("span", { class: "total" }, `${r.total.toLocaleString("he-IL")} מופעים`),
           h("span", { class: "badge" }, "סכום ניקוד " + r.niqqud_sum.toLocaleString("he-IL")),
-          h("span", { class: "badge" }, "סכום גימטריה " + r.gematria_sum.toLocaleString("he-IL"))), warn,
+          h("span", { class: "badge" }, "סכום גימטריה " + r.gematria_sum.toLocaleString("he-IL")),
+          exportControl({ kind: "stats_letter", request: { ...base(), letter: letterIn.value, separate_finals: sep }, result: r })), warn,
         h("div", { class: "hint" }, "לחיצה על מספר המופעים מציגה את כל הפסוקים שבהם האות מופיעה עם התנועה הזו."), tbl,
         r.by_book.length > 1 ? h("details", { class: "calc" }, h("summary", {}, `פירוט לפי ספר (${r.by_book.length} ספרים)`), h("div", { class: "scroll" }, bt)) : null));
     } catch (e) { showError(out, e); }
@@ -862,7 +902,7 @@ page("stats", "ניתוח אותיות וניקוד", "סיכום הניקוד �
     try {
       const s = await api("/api/stats/summary", { layer: globals().layer, scope: scope.value() });
       sumOut.innerHTML = "";
-      sumOut.append(card("סיכום: " + s.scope_he, h("div", { class: "summary" }, ...[["פסוקים", s.verses], ["פרקים", s.chapters], ["מילים", s.words], ["אותיות", s.letters],
+      sumOut.append(card("סיכום: " + s.scope_he, exportControl({ kind: "stats_summary", request: { layer: globals().layer, scope: scope.value() }, result: s }), h("div", { class: "summary" }, ...[["פסוקים", s.verses], ["פרקים", s.chapters], ["מילים", s.words], ["אותיות", s.letters],
         ["סכום גימטריה", s.gematria_sum], ["סכום ניקוד", s.niqqud_sum], ["אותיות גדולות", s.large_letters], ["אותיות קטנות", s.small_letters], ["אותיות תלויות", s.hung_letters], ["אותיות מנוקדות (נקודות על אותיות)", s.dotted_letters]]
         .map(([k, v]) => h("span", { class: "badge" }, `${k}: ${Number(v).toLocaleString("he-IL")}`))),
       h("div", { class: "hint" }, Object.entries(s.letter_counts).map(([k, v]) => `${k}: ${v.toLocaleString("he-IL")}`).join(" · "))));
@@ -883,7 +923,7 @@ page("stats", "ניתוח אותיות וניקוד", "סיכום הניקוד �
         })));
       }
       out.append(card(`השוואה: א׳ = ${r.scope_a} (${r.totals.a.toLocaleString("he-IL")} אותיות) · ב׳ = ${r.scope_b} (${r.totals.b.toLocaleString("he-IL")})`,
-        h("div", { class: "hint" }, "בכל תא: שיעור המופעים של התנועה מתוך מופעי האות — בתחום א׳ / בתחום ב׳."), h("div", { class: "scroll" }, tbl)));
+        exportControl({ kind: "stats_compare", request: { scope_a: scope.value(), scope_b: scopeB.value(), position: pos.value }, result: r }), h("div", { class: "hint" }, "בכל תא: שיעור המופעים של התנועה מתוך מופעי האות — בתחום א׳ / בתחום ב׳."), h("div", { class: "scroll" }, tbl)));
     } catch (e) { showError(out, e); }
   }
 });
@@ -985,6 +1025,9 @@ page("validation", "תקינות הנתונים", "דוח אימות אוטומ�
 // 12 — history
 page("history", "היסטוריית חיפושים", "כל חיפוש נשמר עם ההגדרות המלאות ועם התוצאות, וניתן לייצא אותו.", (root) => {
   const out = h("div"), detail = h("div");
+  const fmtSel = selectEl("hist-fmt", EXPORT_FORMATS, store.get("export-format", "xlsx"));
+  fmtSel.addEventListener("change", () => store.set("export-format", fmtSel.value));
+  const allChk = h("input", { type: "checkbox", checked: true });
   root.append(out, detail);
   async function load() {
     try {
@@ -994,18 +1037,21 @@ page("history", "היסטוריית חיפושים", "כל חיפוש נשמר �
       for (const r of rows) {
         tbl.append(h("tr", {}, h("td", {}, r.id), h("td", {}, r.ts), h("td", {}, r.title), h("td", {}, r.total ?? ""),
           h("td", {}, h("span", { class: "row" }, h("button", { class: "btn small secondary", onclick: () => open(r.id) }, "פתח"),
-            h("a", { class: "btn small secondary", href: `/api/history/${r.id}/export?format=csv` }, "CSV"),
-            h("a", { class: "btn small secondary", href: `/api/history/${r.id}/export?format=json` }, "JSON"),
+            h("button", { class: "btn small secondary", onclick: async (e) => {
+              try { await downloadResponse(await fetch(`/api/history/${r.id}/export?format=${fmtSel.value}&all=${allChk.checked}`)); }
+              catch (err) { alert(err.message); }
+            } }, "ייצוא"),
             h("button", { class: "btn small secondary", onclick: async () => { await api(`/api/history/${r.id}`, undefined, "DELETE"); load(); } }, "מחק")))));
       }
-      out.append(card(`${rows.length} חיפושים שמורים`, h("div", { class: "scroll" }, tbl)));
+      out.append(card(`${rows.length} חיפושים שמורים`, h("div", { class: "row" }, field("פורמט ייצוא", fmtSel), h("label", { class: "check" }, allChk, "ייצוא כל התוצאות (עד 5,000)")),
+        h("div", { class: "scroll" }, tbl)));
     } catch (e) { showError(out, e); }
   }
   async function open(id) {
     const r = await api(`/api/history/${id}`);
     detail.innerHTML = "";
     detail.append(card(`${r.title} · ${r.ts}`, h("details", { class: "calc" }, h("summary", {}, "הגדרות החיפוש המלאות"), h("pre", { class: "json" }, JSON.stringify(r.request, null, 1)))));
-    const res = r.result; res.history_id = r.id;
+    const res = r.result; res.history_id = r.id; res._kind = r.kind; res._req = r.request;
     if (Array.isArray(res.results)) { const d = h("div"); detail.append(d); renderResults(d, res); }
     else detail.append(card(null, h("pre", { class: "json" }, JSON.stringify(res, null, 1).slice(0, 30000))));
     detail.scrollIntoView({ behavior: "smooth" });

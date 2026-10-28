@@ -31,6 +31,7 @@ from .positional import (Element, SearchSpec, UnitSpace, combo_lut_for, finalize
 from .results import positional_results, span_result
 
 MAX_LIMIT = 1000
+EXPORT_LIMIT = 5000  # results written by "export all results"
 
 _spaces: dict = {}
 
@@ -41,7 +42,7 @@ def _ctx(corpus, req: dict):
     scope = resolve_scope(corpus, req.get("scope"))
     ntable = NiqqudTable.from_overrides(req.get("niqqud_values"))
     exact = req.get("finals", "fold") == "exact"
-    limit = min(int(req.get("limit", 100)), MAX_LIMIT)
+    limit = min(int(req.get("limit", 100)), EXPORT_LIMIT if req.get("_export") else MAX_LIMIT)
     offset = int(req.get("offset", 0))
     return layer, scope, ntable, exact, limit, offset
 

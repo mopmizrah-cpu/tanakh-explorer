@@ -49,7 +49,9 @@
 | POST | `/api/stats/table`, `/api/stats/cell`, `/api/stats/distribution`, `/api/stats/compare`, `/api/stats/summary` | ניתוח אותיות וניקוד |
 | GET | `/api/reader/{book}/{chapter}` | פרק להצגה |
 | GET/POST | `/api/validation`, `/api/validation/run` | דוח התקינות |
-| GET/DELETE | `/api/history`, `/api/history/{id}`, `/api/history/{id}/export?format=csv\|json` | היסטוריה וייצוא |
+| GET/DELETE | `/api/history`, `/api/history/{id}`, `/api/history/{id}/export?format=…&all=true\|false` | היסטוריה וייצוא חיפוש שמור |
+| POST | `/api/export` | ייצוא של כל תוצאה: `format` (`xlsx`/`csv`/`html`/`json`/`md`/`txt`), `kind`, `request`, `result`, `title`, `all` (הרצה מחדש לקבלת עד 5,000 תוצאות). בראש כל קובץ: מידע על החיפוש, ההגדרות, מספר התוצאות, מקור הטקסט ורישיונו |
+| GET | `/api/export/formats` | רשימת הפורמטים |
 | POST/DELETE | `/api/custom-methods`, `/api/custom-methods/{slug}` | שיטות גימטריה מותאמות אישית |
 
 ## חיפוש משולב
