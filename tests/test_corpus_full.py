@@ -87,3 +87,18 @@ def test_niqqud_heads_full_verse(corpus):
 def test_letters_never_include_marks(corpus):
     L = corpus.layer()
     assert int(L.l_code.max()) < H.N_CODES
+
+
+def test_letter_summary_matches_table(corpus):
+    from tanakh_explorer.stats import analysis as A
+    scope = {"items": [{"type": "parasha", "value": "נח"}]}
+    table = A.letter_table(corpus, {"scope": scope, "layer": {"kq": "qere"}})
+    for letter in ("א", "מ", "ש"):
+        row = next(r for r in table["rows"] if r["letter"] == letter)
+        s = A.letter_summary(corpus, {"letter": letter, "scope": scope, "layer": {"kq": "qere"}})
+        assert s["total"] == row["total"] and s["niqqud_sum"] == row["niqqud_sum"]
+        assert all(row["cells"][x["column"]] == x["count"] for x in s["rows"])
+        assert sum(b["total"] for b in s["by_book"]) == s["total"]
+    fin = A.letter_summary(corpus, {"letter": "ם", "separate_finals": True, "layer": {"kq": "qere"}})
+    both = A.letter_summary(corpus, {"letter": "ם", "layer": {"kq": "qere"}})
+    assert 0 < fin["total"] < both["total"]

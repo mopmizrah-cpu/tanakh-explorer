@@ -769,12 +769,16 @@ page("builder", "בניית חיפוש משולב", "הרכבת חיפוש מכ�
 });
 
 // 9 — letter & niqqud analysis
-page("stats", "ניתוח אותיות וניקוד", "טבלת אותיות × תנועות לכל תחום; לחיצה על תא מציגה את המופעים ואת ההתפלגות.", (root) => {
+page("stats", "ניתוח אותיות וניקוד", "סיכום הניקוד של אות אחת בכל תחום, טבלת אותיות × תנועות, והשוואה בין תחומים. לחיצה על מספר מציגה את המופעים.", (root) => {
   const scope = new ScopePicker();
   const scopeB = new ScopePicker();
   const pos = selectEl("st-pos", [["any", "כל מיקום"], ["first", "אות ראשונה במילה"], ["middle", "אמצע מילה"], ["last", "אות אחרונה במילה"]], "any");
   const out = h("div"), detail = h("div"), sumOut = h("div");
-  root.append(card("הגדרות", h("div", { class: "row" }, field("מיקום במילה", pos), checkbox("st-fin", "הפרד אותיות סופיות")),
+  const letterIn = h("input", { id: "st-letter", type: "text", class: "heb", value: "א", maxlength: 1, size: 2, dir: "rtl", style: "width:70px;text-align:center" });
+  root.append(card("סיכום ניקוד לאות", h("div", { class: "row" }, field("אות", letterIn), checkbox("st-lfin", "הבחן בין אות רגילה לסופית"),
+    h("button", { class: "btn", onclick: () => letterSummary() }, "סכם ניקוד לאות")),
+  h("div", { class: "hint" }, "בחרו את התחום בחלק ״בחר תחום״ שלמטה: כל התנ״ך, תורה, נביאים או כתובים, חומש או ספר מ־24 הספרים, פרשה, פרק או טווח פסוקים. המיקום במילה נקבע בשדה ״מיקום במילה״.")),
+  card("הגדרות", h("div", { class: "row" }, field("מיקום במילה", pos), checkbox("st-fin", "הפרד אותיות סופיות")),
     h("div", { class: "hint" }, "ניתוח הניקוד מתבצע לפי הנוסח שנבחר למעלה. מומלץ ״קרי״, משום שהכתיב אינו מנוקד."),
     h("div", { class: "actions" }, h("button", { class: "btn", onclick: () => go() }, "חשב טבלה"), h("button", { class: "btn secondary", onclick: () => summary() }, "סיכום התחום"),
       h("button", { class: "btn secondary", onclick: () => cmp() }, "השווה לתחום ב׳"))),
@@ -805,10 +809,42 @@ page("stats", "ניתוח אותיות וניקוד", "טבלת אותיות × 
       h("div", { class: "hint" }, "שכיחות: " + freq), h("div", { class: "scroll" }, tbl)));
     } catch (e) { showError(out, e); }
   }
-  async function cell(letter, column, colHe) {
+  async function letterSummary() {
+    loading(out, "מסכם…");
+    try {
+      const sep = $("#st-lfin").checked;
+      const r = await api("/api/stats/letter", { ...base(), letter: letterIn.value, separate_finals: sep });
+      out.innerHTML = "";
+      const rows = r.rows.filter((x) => x.count);
+      const tbl = h("table", { class: "grid" }, h("tr", {}, h("th", {}, "תנועה"), h("th", {}, "מופעים"), h("th", {}, "אחוז"), h("th", {}, ""),
+        h("th", {}, "ערך התנועה"), h("th", {}, "סכום הניקוד")));
+      for (const x of rows) {
+        tbl.append(h("tr", {}, h("td", {}, x.name_he),
+          h("td", { class: "click", title: "הצג את המופעים", onclick: () => cell(letterIn.value, x.column, x.name_he, sep) }, x.count.toLocaleString("he-IL")),
+          h("td", {}, (x.share * 100).toFixed(2) + "%"),
+          h("td", { style: "min-width:120px" }, h("div", { class: "progress" }, h("div", { style: `width:${(x.share * 100).toFixed(1)}%` }))),
+          h("td", {}, x.value ?? "—"), h("td", {}, x.niqqud_sum.toLocaleString("he-IL"))));
+      }
+      tbl.append(h("tr", {}, h("th", {}, "סה״כ"), h("th", {}, r.total.toLocaleString("he-IL")), h("th", {}, "100%"), h("th", {}), h("th", {}),
+        h("th", {}, r.niqqud_sum.toLocaleString("he-IL"))));
+      const cols = r.rows.filter((x) => x.count).map((x) => x.column);
+      const names = Object.fromEntries(r.rows.map((x) => [x.column, x.name_he]));
+      const bt = h("table", { class: "grid" }, h("tr", {}, h("th", {}, "ספר"), h("th", {}, "סה״כ"), ...cols.map((c) => h("th", {}, names[c]))));
+      for (const b of r.by_book) bt.append(h("tr", {}, h("td", {}, b.he), h("td", {}, b.total), ...cols.map((c) => h("td", {}, b.cells[c] || ""))));
+      const warn = r.unpointed_ketiv ? h("div", { class: "hint" }, `שימו לב: ${r.unpointed_ketiv} מופעים נמצאים במילות כתיב, שאינן מנוקדות במקור ולכן נספרו ״ללא תנועה״. כדי לקבל ניקוד מלא, בחרו ״קרי״ בראש המסך.`) : null;
+      out.append(card(`הניקוד על האות ${r.letter} · ${r.settings.scope_he} · ${r.settings.position_he} · ${r.settings.layer_he}`,
+        h("div", { class: "summary" }, h("span", { class: "total" }, `${r.total.toLocaleString("he-IL")} מופעים`),
+          h("span", { class: "badge" }, "סכום ניקוד " + r.niqqud_sum.toLocaleString("he-IL")),
+          h("span", { class: "badge" }, "סכום גימטריה " + r.gematria_sum.toLocaleString("he-IL"))), warn,
+        h("div", { class: "hint" }, "לחיצה על מספר המופעים מציגה את כל הפסוקים שבהם האות מופיעה עם התנועה הזו."), tbl,
+        r.by_book.length > 1 ? h("details", { class: "calc" }, h("summary", {}, `פירוט לפי ספר (${r.by_book.length} ספרים)`), h("div", { class: "scroll" }, bt)) : null));
+    } catch (e) { showError(out, e); }
+  }
+  async function cell(letter, column, colHe, separateFinals) {
     loading(detail);
     try {
       const req = { ...base(), letter, column, limit: 30 };
+      if (separateFinals !== undefined) req.separate_finals = separateFinals;
       const [occ, byBook, byPos] = await Promise.all([api("/api/stats/cell", req), api("/api/stats/distribution", { ...req, by: "book" }),
         api("/api/stats/distribution", { ...req, by: "position" })]);
       detail.innerHTML = "";

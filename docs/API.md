@@ -45,6 +45,7 @@
 | POST | `/api/scan/start` | פתיחת משימת סריקה (`skip_min`, `skip_max`, `variable`) → `job_id` |
 | GET/POST | `/api/jobs`, `/api/jobs/{id}`, `/api/jobs/{id}/cancel`, `/api/jobs/{id}/resume` | מצב המשימה, ביטול וחידוש מנקודת השמירה |
 | POST | `/api/calc/gematria`, `/api/calc/transform`, `/api/calc/shifts`, `/api/calc/letters` | מחשבונים |
+| POST | `/api/stats/letter` | סיכום הניקוד של אות אחת בתחום: `letter`, `separate_finals`, `position`, `scope` |
 | POST | `/api/stats/table`, `/api/stats/cell`, `/api/stats/distribution`, `/api/stats/compare`, `/api/stats/summary` | ניתוח אותיות וניקוד |
 | GET | `/api/reader/{book}/{chapter}` | פרק להצגה |
 | GET/POST | `/api/validation`, `/api/validation/run` | דוח התקינות |

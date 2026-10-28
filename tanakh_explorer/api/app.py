@@ -282,6 +282,11 @@ def stats_table(req: dict = Body(...)):
     return analysis.letter_table(corpus(), req)
 
 
+@app.post("/api/stats/letter")
+def stats_letter(req: dict = Body(...)):
+    return analysis.letter_summary(corpus(), req)
+
+
 @app.post("/api/stats/cell")
 def stats_cell(req: dict = Body(...)):
     return analysis.cell_occurrences(corpus(), req)

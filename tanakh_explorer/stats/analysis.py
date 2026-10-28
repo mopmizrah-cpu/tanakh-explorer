@@ -93,6 +93,59 @@ def letter_table(corpus, req: dict) -> dict:
     }
 
 
+def letter_summary(corpus, req: dict) -> dict:
+    """Everything about the niqqud under one letter in a scope: a count for
+    every vowel, its share, its niqqud value and sum, and a per-book
+    breakdown. With ``separate_finals`` the final form (ם) is counted apart
+    from the regular one (מ); otherwise both are counted together."""
+    letter = H.letters_only(req.get("letter", ""))[:1]
+    if not letter:
+        raise ValueError("יש להזין אות עברית אחת")
+    separate = bool(req.get("separate_finals", False))
+    layer, scope, sel = _selection(corpus, req)
+    ntable = NiqqudTable.from_overrides(req.get("niqqud_values"))
+    if separate:
+        sel = sel & (layer.l_code == H.LETTER_CODE[letter])
+        shown = letter
+    else:
+        sel = sel & (layer.l_base == H.base_index(letter))
+        reg = H.FINAL_TO_REGULAR.get(letter, letter)
+        fin = H.REGULAR_TO_FINAL.get(reg)
+        shown = reg + (f" / {fin}" if fin else "")
+    total = int(sel.sum())
+    cols = _COL[layer.l_combo]
+    counts = np.bincount(cols[sel], minlength=len(COLUMNS))
+    nval = ntable.combo_lut()[layer.l_combo]
+    sums = np.bincount(cols[sel], weights=nval[sel], minlength=len(COLUMNS))
+    single_value = {c: ntable.values[c] for c in COLUMNS if c in ntable.values}
+    rows = []
+    for j, c in enumerate(COLUMNS):
+        rows.append({"column": c, "name_he": COLUMN_HE[c], "count": int(counts[j]),
+                     "share": float(counts[j] / total) if total else 0.0,
+                     "value": single_value.get(c, 0 if c == "none" else None),
+                     "niqqud_sum": int(sums[j])})
+    # letters inside ketiv words that the source leaves unpointed
+    unpointed = int((sel & (layer.word_role[layer.l_word] == 1)).sum())
+    books = corpus.verse_book[layer.l_verse[sel]]
+    bycols = cols[sel]
+    by_book = []
+    for b in np.unique(books).tolist():
+        m = books == b
+        bc = np.bincount(bycols[m], minlength=len(COLUMNS))
+        by_book.append({"book": BOOKS[b].osis, "he": BOOKS[b].he, "total": int(m.sum()),
+                        "cells": {c: int(bc[j]) for j, c in enumerate(COLUMNS)}})
+    std = get_method("standard").letter_array(layer, {}, ntable)
+    return {
+        "letter": shown, "total": total, "rows": rows,
+        "niqqud_sum": int(nval[sel].sum()), "gematria_sum": int(std[sel].sum()),
+        "unpointed_ketiv": unpointed, "by_book": by_book,
+        "settings": {"scope_he": scope.description, "position_he": POSITIONS[req.get("position", "any")],
+                     "layer": {"kq": layer.kq, "maqaf": layer.maqaf},
+                     "layer_he": "כתיב" if layer.kq == "ketiv" else "קרי", "separate_finals": separate,
+                     "niqqud_table": ntable.values},
+    }
+
+
 def _cell_mask(corpus, req):
     layer, scope, sel = _selection(corpus, req)
     letter = req.get("letter")
