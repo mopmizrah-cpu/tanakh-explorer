@@ -27,6 +27,7 @@ def main(argv=None):
     s = sub.add_parser("serve")
     s.add_argument("--host", default="127.0.0.1")
     s.add_argument("--port", type=int, default=8000)
+    s.add_argument("--open", action="store_true", help="open the browser once the server answers")
     sub.add_parser("bench")
     args = ap.parse_args(argv)
 
@@ -49,12 +50,45 @@ def main(argv=None):
     if args.cmd == "serve":
         import uvicorn
         from .corpus.store import load_corpus
+        url = f"http://{args.host}:{args.port}/"
+        if _answers(url + "api/meta"):
+            # already running (e.g. the desktop icon was clicked twice): just show it
+            print(f"server already running at {url}")
+            if args.open:
+                import webbrowser
+                webbrowser.open(url)
+            return 0
         load_corpus()
+        if args.open:
+            _open_when_ready(url)
         uvicorn.run("tanakh_explorer.api.app:app", host=args.host, port=args.port)
     if args.cmd == "bench":
         from .bench import run_bench
         run_bench()
     return 0
+
+
+def _answers(url: str) -> bool:
+    import urllib.request
+    try:
+        with urllib.request.urlopen(url, timeout=2) as r:
+            return r.status == 200
+    except OSError:
+        return False
+
+
+def _open_when_ready(url: str) -> None:
+    import threading
+    import time
+    import webbrowser
+
+    def wait():
+        for _ in range(120):
+            if _answers(url + "api/meta"):
+                webbrowser.open(url)
+                return
+            time.sleep(0.5)
+    threading.Thread(target=wait, daemon=True).start()
 
 
 if __name__ == "__main__":

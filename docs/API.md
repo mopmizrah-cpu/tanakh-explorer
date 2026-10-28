@@ -30,6 +30,8 @@
 | GET | `/api/sections/{book}` | הפרשות הפתוחות והסתומות בספר |
 | POST | `/api/search/letters` | `query`, `unit` (`words`/`verses`/`letters`), `selector` (`first`/`last`/`mixed` + `selectors`), `skips`, `boundary` (`none`/`word`/`verse`/`chapter`/`book`), `reverse`, `whole_word`, `letter_groups` (`articulation`), `anchor`, `anchor_skip` |
 | POST | `/api/search/phrase` | מילים שלמות ברצף (עם דילוגים אפשריים) |
+| POST | `/api/search/mode` | חיפוש אותיות לפי מצב בשם: `search_mode` (`word`/`sequence`/`heads`/`tails`/`verse_heads`/`verse_tails`) |
+| POST | `/api/search/anagram` | כל סידורי אותיות השאילתה (עד 12 אותיות): `search_mode`, `skips`, `boundary`, `include_original`. מחזיר את ההתאמות ואת `arrangements` — טבלת הופעות לכל סידור (כל הסידורים כשיש עד 5,040; אחרת רק אלה שנמצאו). האותיות הסופיות נחשבות רגילות (ם = מ) |
 | POST | `/api/search/niqqud` | `query` מנוקד, `match` (`niqqud`/`letters_niqqud`/`value`/`letters_value`), `unit`, `selector`, `whole_word`, `full_verse`, `merge_qamats_qatan` |
 | POST | `/api/search/niqqud-sum` | `kind`: `word`/`heads`/`verse_heads`/`in_verse` (+`sub`: `verse_total`/`run`/`single_word`/`word_heads`/`word_tails`), `compare`: `niqqud`/`letters`, `target`, `length` |
 | POST | `/api/search/gematria` | `method`, `params`, `query` או `target`, `span` (`words`/`verse`), `n_min`, `n_max`, `cross_verses` |

@@ -102,6 +102,18 @@ def search_letters(req: dict = Body(...)):
     return _save("letters", f"{req.get('query')} · {unit_he}", req, res)
 
 
+@app.post("/api/search/mode")
+def search_mode(req: dict = Body(...)):
+    """A letter search by named mode (word / sequence / heads / tails / verse_heads / verse_tails)."""
+    res = S.search_by_mode(corpus(), req, req.get("query", ""))
+    return _save("letters", f"{req.get('query')} · {S.SEARCH_MODES[req.get('search_mode', 'word')][0]}", req, res)
+
+
+@app.post("/api/search/anagram")
+def search_anagram(req: dict = Body(...)):
+    return _save("anagram", f"כל סידורי האותיות: {req.get('query')}", req, S.anagram_search(corpus(), req))
+
+
 @app.post("/api/search/phrase")
 def search_phrase(req: dict = Body(...)):
     return _save("phrase", f"ביטוי: {req.get('query')}", req, S.phrase_search(corpus(), req))

@@ -161,7 +161,6 @@ def run_search(space: UnitSpace, spec: SearchSpec, scope, ntable=None, matches=N
     if matches is None:
         matches = [space.element_match(e, ntable, word_type_ids) for e in spec.elements]
     n = space.n
-    rid = scope.range_id[space.verse_of]
     if spec.anchor:
         cand = _anchors(space, scope, spec.anchor) + spec.anchor_skip
         cand = cand[(cand >= 0) & (cand < n)]
@@ -172,6 +171,13 @@ def run_search(space: UnitSpace, spec: SearchSpec, scope, ntable=None, matches=N
     cand = cand[cand + last < n]
     for j in range(1, k):
         cand = cand[matches[j][cand + offs[j]]]
+    return finalize(space, spec, scope, cand, last)
+
+
+def finalize(space: UnitSpace, spec: SearchSpec, scope, cand: np.ndarray, last: int) -> np.ndarray:
+    """Keep the candidate starts that satisfy scope, boundary, anchor, whole-word
+    and full-verse rules. Shared by every positional search."""
+    rid = scope.range_id[space.verse_of]
     # scope: first and last unit in the same scope range (ranges are contiguous)
     end = cand + last
     ok = (rid[cand] >= 0) & (rid[cand] == rid[end])

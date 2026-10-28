@@ -232,6 +232,29 @@ function queryAnalysisEl(q) {
     h("div", { class: "lbox" }, h("div", { class: "g" }, u.letter), h("div", { class: "v" }, u.vowels_he), h("div", { class: "v" }, "ערך " + u.value))));
 }
 
+// ---------------------------------------------------------------- permutation search
+function anagramBox() {
+  return h("div", { class: "row" }, checkbox("x-anagram", "חפש בכל סידורי האותיות (קומבינטוריקה)"),
+    checkbox("x-orig", "כולל הסדר המקורי", true));
+}
+function anagramOn() { const c = $("#x-anagram"); return c && c.checked; }
+
+function runAnagram(out, buildReq, exactSearch) {
+  runSearch(out, "/api/search/anagram", () => ({ ...buildReq(), include_original: $("#x-orig").checked }), (res) => {
+    const tbl = h("table", { class: "grid perm-table" }, h("tr", {}, h("th", {}, "סידור"), h("th", {}, "הופעות"), h("th", {}, "")));
+    for (const a of res.arrangements) {
+      tbl.append(h("tr", { class: a.original ? "sel" : "" },
+        h("td", { class: "l" }, a.display + (a.original ? " (מקורי)" : "")), h("td", {}, a.count),
+        h("td", {}, a.count ? h("button", { class: "btn small secondary", onclick: () => exactSearch(a.arrangement) }, "הצג רק סידור זה") : "")));
+    }
+    const note = res.arrangements_listed_all
+      ? `${res.arrangements_total} סידורים אפשריים, מתוכם ${res.arrangements_found} נמצאו`
+      : `${res.arrangements_total.toLocaleString("he-IL")} סידורים אפשריים — מוצגים ${res.arrangements_found} הסידורים שנמצאו`;
+    return h("div", {}, h("div", { class: "summary" }, h("span", { class: "badge pass" }, "נבדקו כל הסידורים"), h("span", { class: "hint" }, note),
+      h("span", { class: "hint" }, "אותיות סופיות נחשבות כרגילות (ם = מ)")), h("div", { class: "scroll", style: "max-height:320px" }, tbl));
+  });
+}
+
 // ---------------------------------------------------------------- pages
 const PAGES = [];
 function page(id, title, lead, render) { PAGES.push({ id, title, lead, render }); }
@@ -264,10 +287,17 @@ page("acrostic", "חיפוש ראשי תיבות", "ראשי מילים, סופ�
     h("div", { class: "row" }, field("מילת חיפוש", q, "wide"), field("סוג חיפוש", mode), skipsField("a-skips"),
       boundarySelect("a-bound", true), field("קבוצות אותיות", selectEl("a-groups", [["", "ללא"], ["articulation", "חילופי מוצאות הפה (אחה״ע…)"]], ""))),
     mixedBox,
-    h("div", { class: "row" }, checkbox("a-rev", "חפש גם בכיוון הפוך")),
+    h("div", { class: "row" }, checkbox("a-rev", "חפש גם בכיוון הפוך")), anagramBox(),
     h("div", { class: "actions" }, h("button", { class: "btn", onclick: () => go() }, "חפש"))), scope.root, out);
   const go = () => {
     const m = mode.value;
+    if (anagramOn()) {
+      const sm = { first: "heads", last: "tails", word: "word", sequence: "sequence" }[m];
+      if (!sm) { showError(out, new Error("חיפוש בכל סידורי האותיות זמין לראשי מילים, סופי מילים, מילה שלמה ורצף אותיות")); return; }
+      const base = () => ({ query: q.value, search_mode: sm, skips: parseList($("#a-skips").value), boundary: $("#a-bound").value, scope: scope.value() });
+      runAnagram(out, base, (arr) => runSearch(out, "/api/search/mode", () => ({ ...base(), query: arr })));
+      return;
+    }
     if (m === "phrase") {
       return runSearch(out, "/api/search/phrase", () => ({ query: q.value, skips: parseList($("#a-skips").value), boundary: $("#a-bound").value, scope: scope.value() }));
     }
@@ -299,9 +329,19 @@ page("verses", "חיפוש פסוקים", "ראשי פסוקים וסופי פס
   sel.addEventListener("change", upd); q.addEventListener("input", upd);
   const out = h("div");
   root.append(card("שאילתה", h("div", { class: "row" }, field("מילת חיפוש", q, "wide"), field("סוג", sel), skipsField("v-skips"),
-    boundarySelect("v-bound"), checkbox("v-rev", "גם בכיוון הפוך")), mixedBox,
+    boundarySelect("v-bound"), checkbox("v-rev", "גם בכיוון הפוך")), mixedBox, anagramBox(),
     h("div", { class: "actions" }, h("button", { class: "btn", onclick: () => go() }, "חפש"))), scope.root, out);
-  const go = () => runSearch(out, "/api/search/letters", () => {
+  const go = () => {
+    if (anagramOn()) {
+      const sm = { first: "verse_heads", last: "verse_tails" }[sel.value];
+      if (!sm) { showError(out, new Error("חיפוש בכל סידורי האותיות זמין לראשי פסוקים או לסופי פסוקים")); return; }
+      const base = () => ({ query: q.value, search_mode: sm, skips: parseList($("#v-skips").value), boundary: $("#v-bound").value, scope: scope.value() });
+      runAnagram(out, base, (arr) => runSearch(out, "/api/search/letters", () => ({ ...base(), query: arr, unit: "verses", selector: sel.value })));
+      return;
+    }
+    goPlain();
+  };
+  const goPlain = () => runSearch(out, "/api/search/letters", () => {
     const letters = [...q.value].filter((c) => c >= "א" && c <= "ת");
     const r = { query: q.value, unit: "verses", selector: sel.value, skips: parseList($("#v-skips").value),
       boundary: $("#v-bound").value, reverse: $("#v-rev").checked, scope: scope.value() };
@@ -938,8 +978,10 @@ page("history", "היסטוריית חיפושים", "כל חיפוש נשמר �
 });
 
 // ---------------------------------------------------------------- shell
+let CURRENT_PAGE = "acrostic";
 function showPage(id) {
   const p = PAGES.find((x) => x.id === id) || PAGES[0];
+  CURRENT_PAGE = p.id;
   store.set("page", p.id);
   document.querySelectorAll("nav.side button").forEach((b) => b.classList.toggle("active", b.dataset.id === p.id));
   const main = $("#page");
@@ -965,7 +1007,8 @@ async function boot() {
   $("#source-line").textContent = `מקרא על פי המסורה (MAM) · ויקיטקסט · CC BY-SA 4.0 · גרסה ${META.version}`;
   $("#source-line").title = `${s.repo}@${s.commit}`;
   const nav = $("#nav");
-  PAGES.forEach((p, i) => nav.append(h("button", { "data-id": p.id, onclick: () => showPage(p.id) }, h("span", { class: "num" }, i + 1), p.title)));
+  PAGES.forEach((p, i) => nav.append(h("button", { "data-id": p.id, title: p.lead, onclick: () => showPage(p.id) }, h("span", { class: "num" }, i + 1), p.title)));
+  watchHelp(() => CURRENT_PAGE);
   showPage(location.hash.slice(1) || store.get("page", "acrostic"));
   window.addEventListener("hashchange", () => showPage(location.hash.slice(1)));
 }

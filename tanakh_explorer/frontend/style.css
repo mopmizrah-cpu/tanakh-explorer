@@ -151,7 +151,24 @@ table.grid tr.sel td { background: color-mix(in srgb, var(--mark) 30%, transpare
 .split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 pre.json { direction: ltr; text-align: left; font-size: 12px; max-height: 300px; overflow: auto; background: var(--bg); padding: 8px; border-radius: 8px; }
 
+.hi {
+  display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin-inline: 4px;
+  border-radius: 50%; color: var(--accent); cursor: pointer; font-size: 15px; line-height: 1; user-select: none;
+  vertical-align: middle; font-style: normal;
+}
+.hi:hover, .hi:focus-visible { background: var(--accent-soft); outline: none; }
+.help-pop {
+  position: absolute; z-index: 100; background: var(--panel); color: var(--ink); border: 1px solid var(--accent);
+  border-radius: var(--radius); padding: 10px 12px; box-shadow: 0 6px 24px rgba(0, 0, 0, .18); font-size: 14px;
+  line-height: 1.6; max-height: 60vh; overflow: auto;
+}
+.help-pop .help-title { font-weight: 700; margin-bottom: 4px; color: var(--accent); }
+.help-pop ul { margin: 6px 0 0; padding-inline-start: 18px; }
+.help-pop li { margin: 3px 0; }
+.perm-table td.l { cursor: pointer; }
+
 @media (max-width: 860px) {
+  .hi { width: 26px; height: 26px; font-size: 18px; }
   .layout { grid-template-columns: 1fr; }
   nav.side { display: flex; overflow-x: auto; gap: 4px; border-inline-end: 0; border-bottom: 1px solid var(--line); padding: 8px; }
   nav.side button { white-space: nowrap; width: auto; }

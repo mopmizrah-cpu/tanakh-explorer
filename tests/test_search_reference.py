@@ -249,3 +249,25 @@ def test_scope_ranges_do_not_join(synth):
                                             {"type": "chapters", "book": "Gen", "from": 3, "to": 3}]})
     assert len(set(scope.range_id[scope.mask].tolist())) == 2
     assert np.all(scope.range_id[~scope.mask] == -1)
+
+
+@pytest.mark.parametrize("mode,skip", [("word", 1), ("sequence", 1), ("heads", 1), ("tails", 2), ("verse_heads", 1)])
+def test_anagram_matches_reference(synth, mode, skip):
+    """Every arrangement of the query found by the vectorised multiset test
+    must equal the union of plain searches for each arrangement."""
+    import itertools
+    layer = synth.layer("ketiv", "split")
+    query = next(H.normalize_finals(w) for w in layer.word_consonants if len(w) == 3 and len(set(w)) == 3)
+    req = {"query": query, "search_mode": mode, "skips": [skip], "limit": 0}
+    res = S.anagram_search(synth, req)
+    want = 0
+    per = {}
+    for p in sorted({"".join(x) for x in itertools.permutations(query)}):
+        n = S.search_by_mode(synth, {**req, "limit": 0}, p)["total"]
+        per[p] = n
+        want += n
+    assert res["total"] == want
+    assert {r["arrangement"]: r["count"] for r in res["arrangements"]} == per
+    assert res["arrangements_total"] == 6
+    no_orig = S.anagram_search(synth, {**req, "include_original": False})
+    assert no_orig["total"] == want - per[query]

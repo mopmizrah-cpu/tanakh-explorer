@@ -26,7 +26,7 @@ from ..niqqud_gematria import NiqqudTable
 from ..transformations import ARTICULATION
 from ..transformations import REGISTRY as TRANSFORMS
 from ..transformations import get as get_transform
-from .positional import (Element, SearchSpec, UnitSpace, combo_lut_for, letter_elements,
+from .positional import (Element, SearchSpec, UnitSpace, combo_lut_for, finalize, letter_elements,
                          offsets_from_skips, run_search)
 from .results import positional_results, span_result
 
@@ -615,6 +615,103 @@ def search_by_mode(corpus, req: dict, query: str) -> dict:
     sub.update(SEARCH_MODES[mode][1])
     sub["query"] = query
     return letter_search(corpus, sub)
+
+
+MAX_ENUMERATE = 5040  # list every arrangement in the table up to 7! of them
+MAX_ANAGRAM_LETTERS = 12
+
+
+def _distinct_permutations(letters: str) -> int:
+    from collections import Counter
+    from math import factorial, prod
+    return factorial(len(letters)) // prod(factorial(c) for c in Counter(letters).values())
+
+
+def anagram_search(corpus, req: dict) -> dict:
+    """Combinatorial search: every arrangement of the query's letters.
+
+    A position matches when the multiset of letters at the selected units
+    (whole word, letter sequence, word heads/tails, verse heads/tails, with
+    any skips) equals the multiset of the query's letters, in any order.
+    Final forms are folded (ם = מ), because a rearrangement moves letters in
+    and out of final position. Each match reports the arrangement found, and
+    a table counts every arrangement.
+    """
+    import itertools
+
+    t0 = time.time()
+    layer, scope, ntable, exact, limit, offset = _ctx(corpus, req)
+    query = H.normalize_finals(H.letters_only(req.get("query", "")))
+    k = len(query)
+    if k < 2:
+        raise ValueError("לחיפוש קומבינטורי נדרשות לפחות שתי אותיות")
+    if k > MAX_ANAGRAM_LETTERS:
+        raise ValueError(f"חיפוש קומבינטורי נתמך עד {MAX_ANAGRAM_LETTERS} אותיות")
+    mode = req.get("search_mode", "heads")
+    if mode not in SEARCH_MODES:
+        raise ValueError(f"unknown search mode {mode}")
+    opts = dict(SEARCH_MODES[mode][1])
+    unit, selector = opts["unit"], opts.get("selector", "first")
+    space = space_for(corpus, layer, unit)
+    offs, skip_label = _skips(req, k)
+    spec = SearchSpec([Element(selector=selector) for _ in range(k)], offs,
+                      boundary=req.get("boundary", "none"), whole_word=bool(opts.get("whole_word")))
+    target = np.sort(np.array([H.base_index(ch) for ch in query], dtype=np.uint8))
+    allowed = np.zeros(22, dtype=bool)
+    allowed[target] = True
+    L = space.letter_of[selector]
+    base = np.where(L >= 0, layer.l_base[np.maximum(L, 0)], 255)
+    good = (base != 255) & allowed[np.minimum(base, 21)]
+    n = space.n
+    last = offs[-1]
+    cand = np.nonzero(good)[0]
+    cand = cand[cand + last < n]
+    for o in offs[1:]:
+        cand = cand[good[cand + o]]
+    if len(cand):
+        rows = np.sort(base[cand[:, None] + np.asarray(offs)[None, :]], axis=1)
+        cand = cand[(rows == target[None, :]).all(axis=1)]
+    cand = finalize(space, spec, scope, cand, last)
+    # the arrangement found at each match, in reading order (finals folded)
+    found = base[cand[:, None] + np.asarray(offs)[None, :]] if len(cand) else np.zeros((0, k), dtype=np.uint8)
+    keys = ["".join(H.ALEPHBET[c] for c in row) for row in found.tolist()]
+    include_original = req.get("include_original", True)
+    if not include_original:
+        keep = np.array([key != query for key in keys], dtype=bool)
+        cand, keys = cand[keep], [key for key, kp in zip(keys, keep) if kp]
+    counts: dict[str, int] = {}
+    for key in keys:
+        counts[key] = counts.get(key, 0) + 1
+    n_perm = _distinct_permutations(query)
+    table = []
+    if n_perm <= MAX_ENUMERATE:
+        perms = sorted({"".join(p) for p in itertools.permutations(query)})
+        for p in perms:
+            if p == query and not include_original:
+                continue
+            table.append({"arrangement": p, "display": H.apply_final_forms(p), "count": counts.get(p, 0),
+                          "original": p == query})
+    else:
+        for p, c in counts.items():
+            table.append({"arrangement": p, "display": H.apply_final_forms(p), "count": c, "original": p == query})
+    table.sort(key=lambda r: (-r["count"], r["arrangement"]))
+    elements = [Element(selector=selector, label=ch) for ch in query]
+    results = positional_results(corpus, layer, space, cand, offs, elements, limit, offset, ntable=ntable,
+                                 skip_label=skip_label)
+    for r, key in zip(results, keys[offset:offset + limit]):
+        r["arrangement"] = H.apply_final_forms(key)
+        r["steps"].insert(0, f"סידור שנמצא: {H.apply_final_forms(key)} (סידור של האותיות {H.apply_final_forms(query)})")
+    return {
+        "total": int(len(cand)), "results": results, "arrangements": table,
+        "arrangements_total": n_perm, "arrangements_found": len(counts),
+        "arrangements_listed_all": n_perm <= MAX_ENUMERATE,
+        "settings": _settings(req, layer, scope, {
+            "query": query, "search_mode": mode, "search_mode_he": SEARCH_MODES[mode][0],
+            "skips": req.get("skips") or [1], "offsets": offs, "boundary": req.get("boundary", "none"),
+            "include_original": include_original,
+            "anagram_note": "כל סידור של אותיות השאילתה; אותיות סופיות נחשבות כרגילות (ם = מ)"}),
+        "elapsed_ms": round((time.time() - t0) * 1000, 1),
+    }
 
 
 def transform_search(corpus, req: dict) -> dict:
