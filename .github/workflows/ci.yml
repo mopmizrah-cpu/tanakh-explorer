@@ -1,0 +1,25 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: pip install -r requirements-dev.txt
+      - name: Lint
+        run: ruff check tanakh_explorer tests
+      - name: Unit tests (no Bible data needed)
+        run: pytest -q tests/test_niqqud.py tests/test_gematria.py tests/test_transformations.py tests/test_search_reference.py
+      - name: Download sources, build and validate the full Tanakh
+        run: python -m tanakh_explorer setup
+      - name: Full test suite
+        run: pytest -q

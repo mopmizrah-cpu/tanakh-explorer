@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>חוקר התנ״ך</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="top">
+    <div>
+      <h1>חוקר התנ״ך</h1>
+      <div class="sub" id="source-line">טוען…</div>
+    </div>
+    <div class="globals">
+      <label>נוסח לחישוב
+        <select id="g-kq">
+          <option value="ketiv">כתיב</option>
+          <option value="qere">קרי</option>
+        </select>
+      </label>
+      <label>מקף
+        <select id="g-maqaf">
+          <option value="split">מפריד בין מילים</option>
+          <option value="join">צירוף במקף = מילה אחת</option>
+        </select>
+      </label>
+      <label>אותיות סופיות
+        <select id="g-finals">
+          <option value="fold">ם = מ (ברירת מחדל)</option>
+          <option value="exact">התאמה מדויקת</option>
+        </select>
+      </label>
+    </div>
+  </header>
+  <div class="layout">
+    <nav class="side" id="nav"></nav>
+    <main id="page"></main>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
